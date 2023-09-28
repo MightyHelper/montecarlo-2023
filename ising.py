@@ -1,8 +1,11 @@
+import os
+
 import numpy as np
 from numba import njit
 import imageio
 import scipy
 import matplotlib.pyplot as plt
+import pandas as pd
 
 print("Compiling...", flush=True)
 
@@ -132,7 +135,7 @@ def compute_energy(state, pbc=(True, True)):
 @njit
 def run_simulation(sim_box_size, temperature, n_samples, pbc=(True, True)):
     state = get_initial_state(sim_box_size)
-    n_cell = sim_box_size * sim_box_size  # 100
+    n_cell = 100
     mag_log = []
     ener_log = []
     for i in range(n_samples // n_cell):
@@ -147,60 +150,89 @@ def run_simulation(sim_box_size, temperature, n_samples, pbc=(True, True)):
 def main():
     print("Running...")
     c = 2.26918531421
-    generate_gif(1.14, 0.001, True)
-    generate_gif(1.14, 0.001, False)
+    generate_gif(1.14, 0.01, True)
+    generate_gif(1.14, 0.01, False)
 
 
 def generate_gif(p_0, z, pbc=True):
     images = []
     imagesa = []
     centroids = []
-    get_temp = lambda i: z * (i ** 3) + p_0
-    for i in np.arange(-10, 10, 1):
+    get_range = lambda: np.arange(-2.57, 3.88, 0.1)
+    get_temp = lambda i: z * (i ** 5) + p_0
+    mag_list = []
+    ener_list = []
+    for i in get_range():
         temp = get_temp(i)
-        fname, centroid = run_sim_for_temperature(temp, pbc)
+        fname, centroid, mags, energs = run_sim_for_temperature(temp, pbc)
         images.append(fname)
         imagesa.append("a" + fname)
         centroids.append(centroid)
-        print(fname)
-
-        # print("-----")
+        mag_list.append(mags)
+        ener_list.append(energs)
+        print(f"{get_range()[0]} - {i} - {get_range()[-1]}")
+    # mag_list, ener_list, centroids
+    df = pd.DataFrame({
+        "magnetization": mag_list,
+        "energy": ener_list,
+        "temperature": get_range()
+    })
+    df.to_pickle(f"df_{pbc}_{p_0}_{z}.pkl")
     # Images to gif
-    imageio.mimsave(f'ising_{pbc}_{p_0}_{z}.gif', [imageio.imread(fn) for fn in images], duration=1, loop=0)
-    imageio.mimsave(f'aising_{pbc}_{p_0}_{z}.gif', [imageio.imread(fn) for fn in imagesa], duration=1, loop=0)
-    # Centroids gif
+    imageio.mimsave(f'ising_{pbc}_{p_0}_{z}.gif', [imageio.imread(fn) for fn in images], duration=0.1, loop=0)
+    imageio.mimsave(f'aising_{pbc}_{p_0}_{z}.gif', [imageio.imread(fn) for fn in imagesa], duration=0.1, loop=0)
+    plot_avg_magnetism(centroids, get_temp, p_0, pbc, z, get_range)
+    # remove pngs
+    for fname in images + imagesa:
+        os.remove(fname)
+
+
+def plot_avg_magnetism(centroids, get_temp, p_0, pbc, z, get_range):
     plt.clf()
-    plt.plot([get_temp(i) for i in np.arange(-10, 10, 1)], centroids)
+    x = [get_temp(i) for i in get_range()]
+    centroids = np.array(centroids)
+    n_smooth = 2 * int(len(centroids) ** 0.5)
+    print(f"{n_smooth=}")
+    smooth_centroids = np.convolve(centroids, np.ones(n_smooth) / n_smooth, mode='valid')
+    smooth_centroids_x_coords = x[n_smooth // 2: -n_smooth // 2 + 1]
+    derivative_of_smooth_centroids = np.gradient(smooth_centroids)
+    argmin = np.argmin(derivative_of_smooth_centroids)
+    max_derivative_temp = x[argmin + n_smooth // 2]
+    print(
+        f"{max_derivative_temp=}, {argmin=}, {x[argmin]=}, {smooth_centroids=}, {smooth_centroids_x_coords=}, {derivative_of_smooth_centroids=}")
+    print(f"{max_derivative_temp=} {argmin=}")
+    plt.plot(x, centroids)
+    plt.plot(smooth_centroids_x_coords, smooth_centroids)
+    plt.axvline(x=max_derivative_temp, color='r', linestyle='--')
+    plt.legend(["Magnetism", "Smoothed Magnetism", "Min Derivative"])
     plt.xlabel("Temperature")
-    plt.ylabel("Centroid")
-    plt.xlim(get_temp(-10), get_temp(10))
+    plt.ylabel("Average Magnetism")
     plt.ylim(0, 1)
-    plt.title(f"Centroid vs Temperature, PBC: {pbc}")
+    plt.title(f"Avg Magnetism vs Temperature, PBC: {pbc}")
     fname = f"centroid_{pbc}_{p_0}_{z}.png"
+    fname_g = f"centroid_gradient_{pbc}_{p_0}_{z}.png"
     plt.savefig(fname)
+    plt.clf()
+    plt.plot(smooth_centroids_x_coords, derivative_of_smooth_centroids)
+    plt.axvline(x=max_derivative_temp, color='r', linestyle='--')
+    plt.legend(["Derivative of Magnetism", "Min Derivative"])
+    plt.xlabel("Temperature")
+    plt.ylabel("Derivative of Average Magnetism")
+    plt.title(f"Derivative of Avg Magnetism vs Temperature, PBC: {pbc}")
+    plt.savefig(fname_g)
 
 
 def run_sim_for_temperature(temp, pbc=True):
     state, mag, energs = run_simulation(16, temp, 1_000_000, (pbc, pbc))
     np_mag = np.array(mag)
     np_energs = np.array(energs)
-    # First derivative
-    # mag_smooth = np.convolve(np_mag, np.ones(100) / 100, mode='valid')
-    # mag_smooth_smooth = np.convolve(mag_smooth, np.ones(100) / 100, mode='valid')
-    # mag_smooth_smooth_diff = np.diff(mag_smooth_smooth)
-    # energ_smooth = np.convolve(np_energs, np.ones(100) / 100, mode='valid')
-    # energ_smooth_smooth = np.convolve(energ_smooth, np.ones(100) / 100, mode='valid')
-    # energ_smooth_smooth_diff = np.diff(energ_smooth_smooth)
-    # Plot
-
-    # Set color to index
     plt.clf()
     plt.scatter(np_mag, np_energs, c=np.arange(len(np_mag)), cmap='viridis', alpha=0.1)
     plt.xlabel("Magnetization")
     plt.ylabel("Energy")
     plt.xlim(-1, 1)
     plt.ylim(-4.5, 0.5)
-    plt.title(f"Temperature: {temp}, PBC: {pbc}")
+    plt.title(f"PBC: {pbc}, Temperature: {temp}")
     fname = f"mag_energ_{pbc}_{temp}.png"
     plt.savefig(fname)
     plt.clf()
@@ -209,12 +241,11 @@ def run_sim_for_temperature(temp, pbc=True):
     plt.ylabel("Energy")
     plt.xlim(0, 1)
     plt.ylim(-4.5, 0.5)
-    plt.title(f"Temperature: {temp}, PBC: {pbc}")
+    plt.title(f"PBC: {pbc}, Temperature: {temp}")
     fname2 = f"amag_energ_{pbc}_{temp}.png"
     plt.savefig(fname2)
-
     centroid = np.mean(np.abs(np_mag))
-    return fname, centroid
+    return fname, centroid, np_mag, np_energs
 
 
 # def formula_for_E(temperature):
