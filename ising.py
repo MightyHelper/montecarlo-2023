@@ -19,7 +19,7 @@ def compute_energy_change2(state, site, pbc=(True, True)):
 def apply_metropolis_importance_sampling(state, site, temperature, pbc=(True, True)):
     """Apply the Metropolis importance sampling algorithm to the given state."""
     # Compute the change in energy
-    delta_energy = -compute_energy_change2(state, site, pbc)
+    delta_energy = -compute_energy_at_site2d(state, site, pbc)
     # If the change in energy is negative, accept the move
     if delta_energy <= 0 or (temperature > 0 and np.random.rand() < np.exp(-delta_energy / temperature)):
         state[site] *= -1
@@ -150,11 +150,12 @@ def run_simulation(sim_box_size, temperature, n_samples, pbc=(True, True)):
 def main():
     print("Running...")
     c = 2.26918531421
-    generate_gif(1.1668462899360006, 0.01, True)
-    generate_gif(1.043438275543, 0.01, False)
+    for size in [4, 8, 16, 32, 64]:
+        generate_gif(size, 1.1668462899360006, 0.01, True)
+        generate_gif(size, 1.043438275543, 0.01, False)
 
 
-def generate_gif(p_0, z, pbc=True):
+def generate_gif(size, p_0, z, pbc=True):
     images = []
     imagesa = []
     centroids = []
@@ -164,30 +165,30 @@ def generate_gif(p_0, z, pbc=True):
     ener_list = []
     for i in get_range():
         temp = get_temp(i)
-        fname, centroid, mags, energs = run_sim_for_temperature(temp, pbc)
+        fname, fname2, centroid, mags, energs = run_sim_for_temperature(size, temp, pbc)
         images.append(fname)
-        imagesa.append("a" + fname)
+        imagesa.append(fname2)
         centroids.append(centroid)
         mag_list.append(mags)
         ener_list.append(energs)
-        print(f"{get_range()[0]} - {i} - {get_range()[-1]}")
+        print(f"{size} {pbc}: {get_range()[0]} - {i} - {get_range()[-1]}")
     # mag_list, ener_list, centroids
     df = pd.DataFrame({
         "magnetization": mag_list,
         "energy": ener_list,
         "temperature": get_range()
     })
-    df.to_pickle(f"df_{pbc}_{p_0}_{z}.pkl")
+    df.to_pickle(f"df_{size}_{pbc}_{p_0}_{z}.pkl")
     # Images to gif
-    imageio.mimsave(f'ising_{pbc}_{p_0}_{z}.gif', [imageio.imread(fn) for fn in images], duration=0.1, loop=0)
-    imageio.mimsave(f'aising_{pbc}_{p_0}_{z}.gif', [imageio.imread(fn) for fn in imagesa], duration=0.1, loop=0)
-    plot_avg_magnetism(centroids, get_temp, p_0, pbc, z, get_range)
+    imageio.mimsave(f'ising_r_{size}_{pbc}_{p_0}_{z}.gif', [imageio.imread(fn) for fn in images], duration=0.1, loop=0)
+    imageio.mimsave(f'ising_a_{size}_{pbc}_{p_0}_{z}.gif', [imageio.imread(fn) for fn in imagesa], duration=0.1, loop=0)
+    plot_avg_magnetism(size, centroids, get_temp, p_0, pbc, z, get_range)
     # remove pngs
     for fname in images + imagesa:
         os.remove(fname)
 
 
-def plot_avg_magnetism(centroids, get_temp, p_0, pbc, z, get_range):
+def plot_avg_magnetism(size, centroids, get_temp, p_0, pbc, z, get_range):
     plt.clf()
     x = [get_temp(i) for i in get_range()]
     centroids = np.array(centroids)
@@ -210,9 +211,9 @@ def plot_avg_magnetism(centroids, get_temp, p_0, pbc, z, get_range):
     plt.xlabel("Temperature")
     plt.ylabel("Average Magnetism")
     plt.ylim(0, 1)
-    plt.title(f"Avg Magnetism vs Temperature, PBC: {pbc}")
-    fname = f"centroid_{pbc}_{p_0}_{z}.png"
-    fname_g = f"centroid_gradient_{pbc}_{p_0}_{z}.png"
+    plt.title(f"Avg Magnetism vs Temperature\nPBC: {pbc}, Size: {size}\nTransition temperature: {max_derivative_temp}")
+    fname = f"centroid_{size}_{pbc}_{p_0}_{z}.png"
+    fname_g = f"centroid_gradient_{size}_{pbc}_{p_0}_{z}.png"
     plt.savefig(fname)
     plt.clf()
     plt.plot(smooth_centroids_x_coords, derivative_of_smooth_centroids)
@@ -220,12 +221,12 @@ def plot_avg_magnetism(centroids, get_temp, p_0, pbc, z, get_range):
     plt.legend(["Derivative of Magnetism", "Min Derivative"])
     plt.xlabel("Temperature")
     plt.ylabel("Derivative of Average Magnetism")
-    plt.title(f"Derivative of Avg Magnetism vs Temperature, PBC: {pbc}")
+    plt.title(f"Derivative of Avg Magnetism vs Temperature\nPBC: {pbc}, Size: {size}\nTransition temperature: {max_derivative_temp}")
     plt.savefig(fname_g)
 
 
-def run_sim_for_temperature(temp, pbc=True):
-    state, mag, energs = run_simulation(16, temp, 1_000_000, (pbc, pbc))
+def run_sim_for_temperature(size, temp, pbc=True):
+    state, mag, energs = run_simulation(size, temp, 1_000_000, (pbc, pbc))
     np_mag = np.array(mag)
     np_energs = np.array(energs)
     plt.clf()
@@ -235,7 +236,7 @@ def run_sim_for_temperature(temp, pbc=True):
     plt.xlim(-1, 1)
     plt.ylim(-4.5, 0.5)
     plt.title(f"PBC: {pbc}, Temperature: {temp}")
-    fname = f"mag_energ_{pbc}_{temp}.png"
+    fname = f"mag_r_energ_{size}_{pbc}_{temp}.png"
     plt.savefig(fname)
     plt.clf()
     plt.scatter(np.abs(np_mag), np_energs, c=np.arange(len(np_mag)), cmap='viridis', alpha=0.1)
@@ -244,10 +245,10 @@ def run_sim_for_temperature(temp, pbc=True):
     plt.xlim(0, 1)
     plt.ylim(-4.5, 0.5)
     plt.title(f"PBC: {pbc}, Temperature: {temp}")
-    fname2 = f"amag_energ_{pbc}_{temp}.png"
+    fname2 = f"mag_a_energ_{size}_{pbc}_{temp}.png"
     plt.savefig(fname2)
     centroid = np.mean(np.abs(np_mag))
-    return fname, centroid, np_mag, np_energs
+    return fname, fname2, centroid, np_mag, np_energs
 
 
 # def formula_for_E(temperature):
