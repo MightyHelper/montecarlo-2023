@@ -158,7 +158,7 @@ def generate_gif(p_0, z, pbc=True):
     images = []
     imagesa = []
     centroids = []
-    get_range = lambda: np.arange(-2.57, 3, 0.1)
+    get_range = lambda: np.arange(-2.57, 3, 0.05)
     get_temp = lambda i: z * (i ** 5) + p_0
     mag_list = []
     ener_list = []
@@ -203,10 +203,10 @@ def plot_avg_magnetism(centroids, get_temp, p_0, pbc, z, get_range):
     print(f"{max_derivative_temp=} {argmin=}")
     plt.plot(x, centroids)
     # add an x at each data point
-    plt.scatter(x, centroids, c='r', marker='x')
+    plt.scatter(x, centroids, c='r', marker='x', alpha=0.1)
     plt.plot(smooth_centroids_x_coords, smooth_centroids)
     plt.axvline(x=max_derivative_temp, color='r', linestyle='--')
-    plt.legend(["Magnetism", "Smoothed Magnetism", "Min Derivative"])
+    plt.legend(["Magnetism", "Magnetism data points", "Smoothed Magnetism", "Min Derivative"])
     plt.xlabel("Temperature")
     plt.ylabel("Average Magnetism")
     plt.ylim(0, 1)
