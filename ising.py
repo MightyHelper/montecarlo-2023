@@ -150,15 +150,15 @@ def run_simulation(sim_box_size, temperature, n_samples, pbc=(True, True)):
 def main():
     print("Running...")
     c = 2.26918531421
-    generate_gif(1.14, 0.01, True)
-    generate_gif(1.14, 0.01, False)
+    generate_gif(1.1668462899360006, 0.01, True)
+    generate_gif(1.043438275543, 0.01, False)
 
 
 def generate_gif(p_0, z, pbc=True):
     images = []
     imagesa = []
     centroids = []
-    get_range = lambda: np.arange(-2.57, 3.88, 0.1)
+    get_range = lambda: np.arange(-2.57, 3, 0.1)
     get_temp = lambda i: z * (i ** 5) + p_0
     mag_list = []
     ener_list = []
@@ -195,13 +195,15 @@ def plot_avg_magnetism(centroids, get_temp, p_0, pbc, z, get_range):
     print(f"{n_smooth=}")
     smooth_centroids = np.convolve(centroids, np.ones(n_smooth) / n_smooth, mode='valid')
     smooth_centroids_x_coords = x[n_smooth // 2: -n_smooth // 2 + 1]
-    derivative_of_smooth_centroids = np.gradient(smooth_centroids)
+    derivative_of_smooth_centroids = np.gradient(smooth_centroids, smooth_centroids_x_coords)
     argmin = np.argmin(derivative_of_smooth_centroids)
     max_derivative_temp = x[argmin + n_smooth // 2]
     print(
         f"{max_derivative_temp=}, {argmin=}, {x[argmin]=}, {smooth_centroids=}, {smooth_centroids_x_coords=}, {derivative_of_smooth_centroids=}")
     print(f"{max_derivative_temp=} {argmin=}")
     plt.plot(x, centroids)
+    # add an x at each data point
+    plt.scatter(x, centroids, c='r', marker='x')
     plt.plot(smooth_centroids_x_coords, smooth_centroids)
     plt.axvline(x=max_derivative_temp, color='r', linestyle='--')
     plt.legend(["Magnetism", "Smoothed Magnetism", "Min Derivative"])
