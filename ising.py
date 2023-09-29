@@ -153,10 +153,24 @@ def main():
     # for size in [4, 8, 16, 32, 64]:
     #     generate_gif(size, 1.1668462899360006, 0.01, True)
     #     generate_gif(size, 1.043438275543, 0.01, False)
-    run_sim_for_temperature(32, 1, True)
-    run_sim_for_temperature(32, 4, True)
-    run_sim_for_temperature(32, 1, False)
-    run_sim_for_temperature(32, 4, False)
+    do_single_run(32, 1, True)
+    do_single_run(32, 4, True)
+    do_single_run(32, 1, False)
+    do_single_run(32, 4, False)
+
+
+def do_single_run(size, temp, pbc):
+    fname, fname2, centroid, np_mag, np_energs = run_sim_for_temperature(size, temp, pbc)
+    plt.clf()
+    plt.plot(np_energs)
+    plt.plot(np_mag)
+    plt.legend(["Energy", "Magnetism"])
+    plt.title(f"Energy and Magnetism vs Time\nPBC: {pbc}, Size: {size}, Temperature: {temp}")
+    plt.xlabel("Time / 100")
+    plt.ylabel("Energy and Magnetism")
+    fname3 = f"energ_mag_{size}_{pbc}_{temp}.png"
+    plt.savefig(fname3)
+
 
 
 def generate_gif(size, p_0, z, pbc=True):
