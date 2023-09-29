@@ -150,9 +150,13 @@ def run_simulation(sim_box_size, temperature, n_samples, pbc=(True, True)):
 def main():
     print("Running...")
     c = 2.26918531421
-    for size in [4, 8, 16, 32, 64]:
-        generate_gif(size, 1.1668462899360006, 0.01, True)
-        generate_gif(size, 1.043438275543, 0.01, False)
+    # for size in [4, 8, 16, 32, 64]:
+    #     generate_gif(size, 1.1668462899360006, 0.01, True)
+    #     generate_gif(size, 1.043438275543, 0.01, False)
+    run_sim_for_temperature(32, 1, True)
+    run_sim_for_temperature(32, 4, True)
+    run_sim_for_temperature(32, 1, False)
+    run_sim_for_temperature(32, 4, False)
 
 
 def generate_gif(size, p_0, z, pbc=True):
