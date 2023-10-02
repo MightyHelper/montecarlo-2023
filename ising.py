@@ -3,7 +3,6 @@ import os
 import numpy as np
 from numba import njit
 import imageio
-import scipy
 import matplotlib.pyplot as plt
 import pandas as pd
 
@@ -150,17 +149,18 @@ def run_simulation(sim_box_size, temperature, n_samples, pbc=(True, True)):
 def main():
     print("Running...")
     c = 2.26918531421
-    # for size in [4, 8, 16, 32, 64]:
-    #     generate_gif(size, 1.1668462899360006, 0.01, True)
-    #     generate_gif(size, 1.043438275543, 0.01, False)
-    do_single_run(32, 1, True)
-    do_single_run(32, 4, True)
-    do_single_run(32, 1, False)
-    do_single_run(32, 4, False)
+    # generate_gif(8, 1.1668462899360006, True, 20000)
+    for size in [4, 8, 16, 32, 64]:
+        generate_gif(size, 1.1668462899360006, True, 30000)
+        generate_gif(size, 1.043438275543, False, 30000)
+    # do_single_run(32, 1, True)
+    # do_single_run(32, 4, True)
+    # do_single_run(32, 1, False)
+    # do_single_run(32, 4, False)
 
 
-def do_single_run(size, temp, pbc):
-    fname, fname2, centroid, np_mag, np_energs = run_sim_for_temperature(size, temp, pbc)
+def do_single_run(size, temp, pbc, sim_count):
+    fname, fname2, centroid, np_mag, np_energs = run_sim_for_temperature(size, temp, pbc, sim_count)
     plt.clf()
     plt.plot(np_energs)
     plt.plot(np_mag)
@@ -172,43 +172,48 @@ def do_single_run(size, temp, pbc):
     plt.savefig(fname3)
 
 
-
-def generate_gif(size, p_0, z, pbc=True):
+def generate_gif(size, p_0, pbc=True, sim_count=16000):
     images = []
     imagesa = []
     centroids = []
-    get_range = lambda: np.arange(-2.57, 3, 0.05)
-    get_temp = lambda i: z * (i ** 5) + p_0
+    # See https://www.desmos.com/calculator/j2rpoekt1n
+    simulation_count = 50  # on each side of the transition temperature
+    squishification_degree = 4.5  # higher = more samples near the transition temperature
+    simulation_width = 2.5  # width of the simulation (p_0 +- simulation_width)
+    get_raw_range = lambda: np.arange(-simulation_count, simulation_count + 0.5, 1)
+    get_temp = lambda i: (simulation_width * i * (abs(i) ** (squishification_degree - 1)) /
+                          (simulation_count ** squishification_degree) + p_0)
+    sim_range = [x for x in get_raw_range() if get_temp(x) >= 0]
     mag_list = []
     ener_list = []
-    for i in get_range():
+    for i in sim_range:
         temp = get_temp(i)
-        fname, fname2, centroid, mags, energs = run_sim_for_temperature(size, temp, pbc)
+        fname, fname2, centroid, mags, energs = run_sim_for_temperature(size, temp, pbc, sim_count)
         images.append(fname)
         imagesa.append(fname2)
         centroids.append(centroid)
         mag_list.append(mags)
         ener_list.append(energs)
-        print(f"{size} {pbc}: {get_range()[0]} - {i} - {get_range()[-1]}")
+        print(f"{size} {pbc}: {sim_range[0]} - {i} - {sim_range[-1]} / {temp}")
     # mag_list, ener_list, centroids
     df = pd.DataFrame({
         "magnetization": mag_list,
         "energy": ener_list,
-        "temperature": get_range()
+        "temperature": sim_range
     })
-    df.to_pickle(f"df_{size}_{pbc}_{p_0}_{z}.pkl")
+    df.to_pickle(f"df_{size}_{pbc}_{p_0}.pkl")
     # Images to gif
-    imageio.mimsave(f'ising_r_{size}_{pbc}_{p_0}_{z}.gif', [imageio.imread(fn) for fn in images], duration=0.1, loop=0)
-    imageio.mimsave(f'ising_a_{size}_{pbc}_{p_0}_{z}.gif', [imageio.imread(fn) for fn in imagesa], duration=0.1, loop=0)
-    plot_avg_magnetism(size, centroids, get_temp, p_0, pbc, z, get_range)
+    imageio.mimsave(f'ising_r_{size}_{pbc}_{p_0}.gif', [imageio.imread(fn) for fn in images], duration=0.1, loop=0)
+    imageio.mimsave(f'ising_a_{size}_{pbc}_{p_0}.gif', [imageio.imread(fn) for fn in imagesa], duration=0.1, loop=0)
+    plot_avg_magnetism(size, centroids, get_temp, p_0, pbc, sim_range)
     # remove pngs
     for fname in images + imagesa:
         os.remove(fname)
 
 
-def plot_avg_magnetism(size, centroids, get_temp, p_0, pbc, z, get_range):
+def plot_avg_magnetism(size, centroids, get_temp, p_0, pbc, sim_range):
     plt.clf()
-    x = [get_temp(i) for i in get_range()]
+    x = [get_temp(i) for i in sim_range]
     centroids = np.array(centroids)
     n_smooth = 2 * int(len(centroids) ** 0.5)
     print(f"{n_smooth=}")
@@ -230,8 +235,8 @@ def plot_avg_magnetism(size, centroids, get_temp, p_0, pbc, z, get_range):
     plt.ylabel("Average Magnetism")
     plt.ylim(0, 1)
     plt.title(f"Avg Magnetism vs Temperature\nPBC: {pbc}, Size: {size}\nTransition temperature: {max_derivative_temp}")
-    fname = f"centroid_{size}_{pbc}_{p_0}_{z}.png"
-    fname_g = f"centroid_gradient_{size}_{pbc}_{p_0}_{z}.png"
+    fname = f"centroid_{size}_{pbc}_{p_0}.png"
+    fname_g = f"centroid_gradient_{size}_{pbc}_{p_0}.png"
     plt.savefig(fname)
     plt.clf()
     plt.plot(smooth_centroids_x_coords, derivative_of_smooth_centroids)
@@ -239,12 +244,13 @@ def plot_avg_magnetism(size, centroids, get_temp, p_0, pbc, z, get_range):
     plt.legend(["Derivative of Magnetism", "Min Derivative"])
     plt.xlabel("Temperature")
     plt.ylabel("Derivative of Average Magnetism")
-    plt.title(f"Derivative of Avg Magnetism vs Temperature\nPBC: {pbc}, Size: {size}\nTransition temperature: {max_derivative_temp}")
+    plt.title(
+        f"Derivative of Avg Magnetism vs Temperature\nPBC: {pbc}, Size: {size}\nTransition temperature: {max_derivative_temp}")
     plt.savefig(fname_g)
 
 
-def run_sim_for_temperature(size, temp, pbc=True):
-    state, mag, energs = run_simulation(size, temp, 1_000_000, (pbc, pbc))
+def run_sim_for_temperature(size, temp, pbc=True, sim_count=20000):
+    state, mag, energs = run_simulation(size, temp, size * size * sim_count, (pbc, pbc))
     np_mag = np.array(mag)
     np_energs = np.array(energs)
     plt.clf()
