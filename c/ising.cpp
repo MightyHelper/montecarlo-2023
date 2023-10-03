@@ -2,18 +2,17 @@
 #include <stdlib.h>
 #include <time.h>
 #include <math.h>
+#include <string>
+#include <thread>
 
 #define DTYPE long long int
+#define N_CONVERGED 10
 
-const DTYPE width = 32;
-const DTYPE height = width;
-const DTYPE system_size = width * height;
-double temperature = 1;
-bool periodic_boundary_conditions = true;
+using namespace std;
+;
 
-int matrix[width][height];
-
-void apply_metropolis_ising() {
+template<DTYPE width, DTYPE height>
+void apply_metropolis_ising(int matrix[width][height], double temperature, bool periodic_boundary_conditions) {
 	for (int i = 0; i < width; i++) {
 		for (int j = 0; j < height; j++) {
 			int s, s_up, s_down, s_left, s_right, delta_E;
@@ -41,8 +40,8 @@ void apply_metropolis_ising() {
 		}
 	}
 }
-
-double get_current_energy() {
+template<DTYPE width, DTYPE height>
+double get_current_energy(int matrix[width][height]) {
 	double energy = 0;
 	for (int i = 0; i < width; i++) {
 		for (int j = 0; j < height; j++) {
@@ -54,10 +53,10 @@ double get_current_energy() {
 			energy += -s * (s_up + s_down + s_left + s_right);
 		}
 	}
-	return energy / system_size;
+	return energy / (width * height);
 }
-
-double compute_energy_at(int i, int j) {
+template<DTYPE width, DTYPE height>
+double compute_energy_at(int i, int j, int matrix[width][height]) {
 	double energy = 0;
 	int s = matrix[i][j];
 	int s_up = matrix[i][(j + 1) % height];
@@ -67,18 +66,18 @@ double compute_energy_at(int i, int j) {
 	energy += -s * (s_up + s_down + s_left + s_right);
 	return energy;
 }
-
-double get_current_magnetization() {
+template<DTYPE width, DTYPE height>
+double get_current_magnetization(int matrix[width][height]) {
 	double magnetization = 0;
 	for (int i = 0; i < width; i++) {
 		for (int j = 0; j < height; j++) {
 			magnetization += matrix[i][j];
 		}
 	}
-	return magnetization / system_size;
+	return magnetization / (width * height);
 }
-
-void print_matrix() {
+template<DTYPE width, DTYPE height>
+void print_matrix(int matrix[width][height]) {
 	for (int i = 0; i < width; i++) {
 		for (int j = 0; j < height; j++) {
 			if (matrix[i][j] == 1) {
@@ -90,29 +89,21 @@ void print_matrix() {
 		printf("\n");
 	}
 }
-
-bool has_converged() {
-	static double last_energies[10] = {0};
-	static int last_energies_idx = 0;
-	static double last_energies_sum = 0;
-	static double last_energies_avg = 0;
-	static double last_energies_std = 0;
-	double current_energy = get_current_energy();
+template<DTYPE width, DTYPE height>
+bool has_converged(int matrix[width][height], double last_energies[N_CONVERGED], int &last_energies_idx, double &last_energies_sum, double &last_energies_avg, double &last_energies_std) {
+	double current_energy = get_current_energy<width, height>(matrix);
 	last_energies_sum -= last_energies[last_energies_idx];
 	last_energies_sum += current_energy;
 	last_energies[last_energies_idx] = current_energy;
-	last_energies_idx = (last_energies_idx + 1) % 10;
-	last_energies_avg = last_energies_sum / 10;
+	last_energies_idx = (last_energies_idx + 1) % N_CONVERGED;
+	last_energies_avg = last_energies_sum / N_CONVERGED;
 	double sum_of_squares = 0;
-	for (int i = 0; i < 10; i++) {
-		sum_of_squares += pow(last_energies[i] - last_energies_avg, 2);
-	}
-	last_energies_std = sqrt(sum_of_squares / 10);
-//	printf("E:%f E_avg:%f E_std:%f\n", current_energy, last_energies_avg, last_energies_std);
-	return last_energies_std < 0.1 * width * height * 0.01;
+	for (int i = 0; i < N_CONVERGED; i++) sum_of_squares += pow(last_energies[i] - last_energies_avg, 2);
+	last_energies_std = sqrt(sum_of_squares / N_CONVERGED);
+	return last_energies_std < 0.05;
 }
-
-void init() {
+template<DTYPE width, DTYPE height>
+void init(int matrix[width][height]) {
 	for (int i = 0; i < width; i++) {
 		for (int j = 0; j < height; j++) {
 			double r = (double) rand() / (double) RAND_MAX;
@@ -125,23 +116,64 @@ void init() {
 	}
 }
 
+template <int size>
+void run_simulation(float simulation_width = 1, float squishification_degree = 2, float simulation_count = 5) {
+	constexpr DTYPE width = size;
+	constexpr DTYPE height = size;
+	constexpr DTYPE system_size = width * height;
+	int matrix[width][height] = {0};
+	float p_0 = 2.26918531421;
+	// exec_{size}.txt
+	auto filename = (string("exec_") + to_string(size) + ".txt").c_str();
+	auto output_file = fopen(filename, "w");
+	bool pbc = true;
+	for (int idx = -simulation_count; idx < simulation_count; idx += 1) {
+		double temperature = (
+			simulation_width * idx *
+			(pow(abs(idx), (squishification_degree - 1))) / (pow(simulation_count, squishification_degree))
+			+ p_0
+		);
+		for (int run = 0; run < 100; run++) {
+			init<width, height>(matrix);
+			static double last_energies[10] = {0};
+			static int    last_energies_idx = 0;
+			static double last_energies_sum = 0;
+			static double last_energies_avg = 0;
+			static double last_energies_std = 0;
+			for (int i = 0; i < 10; i++) apply_metropolis_ising<width, height>(matrix, temperature, pbc);
+			while (!has_converged<width, height>(matrix, last_energies, last_energies_idx, last_energies_sum, last_energies_avg, last_energies_std)) apply_metropolis_ising<width, height>(matrix, temperature, pbc);
+			fprintf(output_file, "%f %f %f %lld\n",
+				get_current_energy<width, height>(matrix),
+				abs(get_current_magnetization<width, height>(matrix)),
+				temperature,
+				width * height
+			);
+		}
+		printf("Done %f/%f : %d\n", idx + simulation_count, 2 * simulation_count, size);
+	}
+	fclose(output_file);
+}
+
 int main() {
 //	srand(time(NULL));
 	srand(1);
-	for (temperature = 0; temperature < 3; temperature+=0.01) {
-		for (int run = 0; run < 100; run++) {
-			init();
-			int i = 0;
-			do {
-				apply_metropolis_ising();
-				if (i % 10 == 0) {
-//				printf("E:%f M:%f i:%d\n", get_current_energy(), get_current_magnetization(), i + 1);
-				}
-				i++;
-			} while (!has_converged() or i < 10);
-			printf("E: %f M: %f iter: %lld temp: %f\n", get_current_energy(), abs(get_current_magnetization()),
-			       i * system_size, temperature);
-		}
-	}
+	auto w = 0.5;
+	auto degree = 2;
+	auto count = 20;
+ //run_simulation<300>(w, degree, count);
+// Run in thread
+#define sim(thr, sz) thread thr(run_simulation<sz>, w, degree, count)
+	sim(t0, 16);
+	sim(t1, 32);
+	sim(t2, 64);
+	sim(t3, 128);
+	sim(t4, 256);
+
+	t0.join();
+	t1.join();
+	t2.join();
+	t3.join();
+	t4.join();
+
 	return 0;
 }
