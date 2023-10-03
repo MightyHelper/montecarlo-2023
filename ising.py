@@ -1,26 +1,38 @@
 import os
 
 import numpy as np
-from numba import njit
+from numba import njit, config
 import imageio
 import matplotlib.pyplot as plt
 import pandas as pd
+import time
+from multiprocessing import Pool
+
+# config.DISABLE_JIT = True
+# config.NUMBA_NUM_THREADS = 1
 
 print("Compiling...", flush=True)
-
-
-@njit
-def compute_energy_change2(state, site, pbc=(True, True)):
-    return compute_energy_at_site2d(state, site, pbc)
 
 
 @njit
 def apply_metropolis_importance_sampling(state, site, temperature, pbc=(True, True)):
     """Apply the Metropolis importance sampling algorithm to the given state."""
     # Compute the change in energy
-    delta_energy = -compute_energy_at_site2d(state, site, pbc)
+    delta_energy = 2 * compute_energy_at_site2d(state, site, pbc)
+    # print(delta_energy)
+    # current_energy = compute_energy(state, pbc)
+    # state[site] *= -1
+    # new_energy = compute_energy(state, pbc)
+    # delta_energy_n = new_energy - current_energy
+    # if (delta_energy_n - delta_energy_o) != 0:
+    #     print(">>", delta_energy_n, delta_energy_o, current_energy, new_energy)
+    # delta_energy = delta_energy_n
     # If the change in energy is negative, accept the move
-    if delta_energy <= 0 or (temperature > 0 and np.random.rand() < np.exp(-delta_energy / temperature)):
+    if delta_energy <= 0:
+        state[site] *= -1
+        return
+    # print(f"{delta_energy=}, {temperature=}, {np.exp(-delta_energy / temperature)}")
+    if temperature > 0 and np.random.rand() < np.exp(-delta_energy / temperature):
         state[site] *= -1
 
 
@@ -110,18 +122,21 @@ def compute_energy_at_site(state, site, pbc=(True, True)):
 @njit
 def compute_energy_at_site2d(state, site, pbc=(True, True)):
     energy = 0
+    n_x, n_y = site
+    # out = ""
     for j in [-1, 1]:
-        n_x, n_y = site
-        n_x = n_x + j
-        if pbc[0]: n_x %= state.shape[0]
-        if 0 <= n_x < state.shape[0]:
-            energy -= state[n_x, n_y]
+        n_xx = n_x + j
+        if pbc[0]: n_xx %= state.shape[0]
+        if 0 <= n_xx < state.shape[0]:
+            energy += state[n_xx, n_y]
+        # out += f"{n_xx}, {n_y} [{state[n_xx, n_y]}] | "
     for j in [-1, 1]:
-        n_x, n_y = site
-        n_y = n_y + j
-        if pbc[1]: n_y %= state.shape[1]
-        if 0 <= n_y < state.shape[1]:
-            energy -= state[n_x, n_y]
+        n_yy = n_y + j
+        if pbc[1]: n_yy %= state.shape[1]
+        if 0 <= n_yy < state.shape[1]:
+            energy += state[n_x, n_yy]
+        # out += f"{n_x}, {n_yy} [{state[n_x, n_yy]}] | "
+    # print(out + f"= {energy} {state[site]}")
     return energy * state[site]
 
 
@@ -134,12 +149,16 @@ def compute_energy(state, pbc=(True, True)):
 @njit
 def run_simulation(sim_box_size, temperature, n_samples, pbc=(True, True)):
     state = get_initial_state(sim_box_size)
-    n_cell = 100
+    n_cell = sim_box_size * sim_box_size * 20
     mag_log = []
     ener_log = []
     for i in range(n_samples // n_cell):
         for _ in range(n_cell):
             apply_metropolis2d(state, temperature, pbc)
+
+        # time.sleep(0.1)
+        # print_state(state)
+        # print_data(state, pbc)
         mag_log.append(compute_magnetization(state))
         ener_log.append(compute_energy(state, pbc))
 
@@ -150,10 +169,10 @@ def main():
     print("Running...")
     c = 2.26918531421
     # generate_gif(8, 1.1668462899360006, True, 20000)
-    for size in [4, 8, 16, 32, 64]:
-        generate_gif(size, 1.1668462899360006, True, 30000)
-        generate_gif(size, 1.043438275543, False, 30000)
-    # do_single_run(32, 1, True)
+    for size in [32, 64, 128, 256, 512, 1024]:
+        generate_gif(size, c, True, 10000)
+        generate_gif(size, c, False, 10000)
+    # do_single_run(32, 3, True, 30000)
     # do_single_run(32, 4, True)
     # do_single_run(32, 1, False)
     # do_single_run(32, 4, False)
@@ -177,25 +196,23 @@ def generate_gif(size, p_0, pbc=True, sim_count=16000):
     imagesa = []
     centroids = []
     # See https://www.desmos.com/calculator/j2rpoekt1n
-    simulation_count = 50  # on each side of the transition temperature
-    squishification_degree = 4.5  # higher = more samples near the transition temperature
-    simulation_width = 2.5  # width of the simulation (p_0 +- simulation_width)
+    simulation_count = 10  # on each side of the transition temperature
+    squishification_degree = 1  # higher = more samples near the transition temperature
+    simulation_width = 0.2  # width of the simulation (p_0 +- simulation_width)
     get_raw_range = lambda: np.arange(-simulation_count, simulation_count + 0.5, 1)
     get_temp = lambda i: (simulation_width * i * (abs(i) ** (squishification_degree - 1)) /
                           (simulation_count ** squishification_degree) + p_0)
     sim_range = [x for x in get_raw_range() if get_temp(x) >= 0]
     mag_list = []
     ener_list = []
-    for i in sim_range:
-        temp = get_temp(i)
-        fname, fname2, centroid, mags, energs = run_sim_for_temperature(size, temp, pbc, sim_count)
+    for fname, fname2, centroid, mags, energs in run_simulations(get_temp, pbc, sim_count, sim_range, size):
+        print(">>", fname)
         images.append(fname)
         imagesa.append(fname2)
         centroids.append(centroid)
         mag_list.append(mags)
         ener_list.append(energs)
-        print(f"{size} {pbc}: {sim_range[0]} - {i} - {sim_range[-1]} / {temp}")
-    # mag_list, ener_list, centroids
+    print(len(mag_list), len(ener_list), len(centroids))
     df = pd.DataFrame({
         "magnetization": mag_list,
         "energy": ener_list,
@@ -203,12 +220,23 @@ def generate_gif(size, p_0, pbc=True, sim_count=16000):
     })
     df.to_pickle(f"df_{size}_{pbc}_{p_0}.pkl")
     # Images to gif
-    imageio.mimsave(f'ising_r_{size}_{pbc}_{p_0}.gif', [imageio.imread(fn) for fn in images], duration=0.1, loop=0)
-    imageio.mimsave(f'ising_a_{size}_{pbc}_{p_0}.gif', [imageio.imread(fn) for fn in imagesa], duration=0.1, loop=0)
+    imageio.mimsave(f'plots/ising_r_{size}_{pbc}_{p_0}.gif', [imageio.imread(fn) for fn in images], duration=0.1,
+                    loop=0)
+    imageio.mimsave(f'plots/ising_a_{size}_{pbc}_{p_0}.gif', [imageio.imread(fn) for fn in imagesa], duration=0.1,
+                    loop=0)
     plot_avg_magnetism(size, centroids, get_temp, p_0, pbc, sim_range)
     # remove pngs
     for fname in images + imagesa:
         os.remove(fname)
+
+
+def run_simulations(get_temp, pbc, sim_count, sim_range, size):
+    if config.DISABLE_JIT:
+        with Pool() as p:
+            return p.starmap(run_sim_for_temperature, [(size, get_temp(i), pbc, sim_count) for i in sim_range])
+    else:
+        return [run_sim_for_temperature(size, get_temp(i), pbc, sim_count) for i in sim_range]
+
 
 
 def plot_avg_magnetism(size, centroids, get_temp, p_0, pbc, sim_range):
@@ -235,8 +263,8 @@ def plot_avg_magnetism(size, centroids, get_temp, p_0, pbc, sim_range):
     plt.ylabel("Average Magnetism")
     plt.ylim(0, 1)
     plt.title(f"Avg Magnetism vs Temperature\nPBC: {pbc}, Size: {size}\nTransition temperature: {max_derivative_temp}")
-    fname = f"centroid_{size}_{pbc}_{p_0}.png"
-    fname_g = f"centroid_gradient_{size}_{pbc}_{p_0}.png"
+    fname = f"plots/centroid_{size}_{pbc}_{p_0}.png"
+    fname_g = f"plots/centroid_gradient_{size}_{pbc}_{p_0}.png"
     plt.savefig(fname)
     plt.clf()
     plt.plot(smooth_centroids_x_coords, derivative_of_smooth_centroids)
@@ -249,7 +277,7 @@ def plot_avg_magnetism(size, centroids, get_temp, p_0, pbc, sim_range):
     plt.savefig(fname_g)
 
 
-def run_sim_for_temperature(size, temp, pbc=True, sim_count=20000):
+def run_sim_for_temperature(size, temp, pbc, sim_count):
     state, mag, energs = run_simulation(size, temp, size * size * sim_count, (pbc, pbc))
     np_mag = np.array(mag)
     np_energs = np.array(energs)
@@ -258,20 +286,21 @@ def run_sim_for_temperature(size, temp, pbc=True, sim_count=20000):
     plt.xlabel("Magnetization")
     plt.ylabel("Energy")
     plt.xlim(-1, 1)
-    plt.ylim(-4.5, 0.5)
+    plt.ylim(-8, 8)
     plt.title(f"PBC: {pbc}, Temperature: {temp}")
-    fname = f"mag_r_energ_{size}_{pbc}_{temp}.png"
+    fname = f"plots/mag_r_energ_{size}_{pbc}_{temp}.png"
     plt.savefig(fname)
     plt.clf()
     plt.scatter(np.abs(np_mag), np_energs, c=np.arange(len(np_mag)), cmap='viridis', alpha=0.1)
     plt.xlabel("Absolute Magnetization")
     plt.ylabel("Energy")
     plt.xlim(0, 1)
-    plt.ylim(-4.5, 0.5)
+    plt.ylim(-8, 8)
     plt.title(f"PBC: {pbc}, Temperature: {temp}")
-    fname2 = f"mag_a_energ_{size}_{pbc}_{temp}.png"
+    fname2 = f"plots/mag_a_energ_{size}_{pbc}_{temp}.png"
     plt.savefig(fname2)
-    centroid = np.mean(np.abs(np_mag))
+    centroid = np.mean(np.abs(np_mag[-(len(np_mag) // 8)]))
+    print(fname)
     return fname, fname2, centroid, np_mag, np_energs
 
 
