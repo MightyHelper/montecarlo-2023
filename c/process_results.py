@@ -28,12 +28,18 @@ for size in sizes:
     # Drop size and plot
     # df.loc[df.index.get_level_values('size') == size].droplevel('size')
     mysize = df.loc[df.index.get_level_values('size') == size].droplevel('size')
+    smooth = mysize.rolling(10).mean()
+    print(smooth)
     plt.plot(mysize.index, mysize['mag'])
+    plt.plot(mysize.index, smooth['mag'])
     plt.scatter(mysize.index, mysize['mag'], marker='x', alpha=0.1)
     plt.xlabel("Temperature")
-    plt.ylabel("Magnetization")
-leg = [(x,None) for x in sizes]
+    plt.ylabel("Abs Magnetization")
+    plt.xlim(0, 5)
+    plt.ylim(0, 1)
+leg = [(x,"Smooth " + str(x),None) for x in sizes]
 # flatten
 leg = [item for sublist in leg for item in sublist]
 plt.legend(leg)
-plt.savefig(f"exec.png")
+
+plt.savefig(f"exec.png", dpi=1000)
