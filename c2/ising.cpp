@@ -1,10 +1,7 @@
 #include <random>
 #include <mpi.h>
-
+#include <omp.h>
 std::random_device rd;
-std::mt19937 gen(rd());
-std::uniform_real_distribution<> real(0, 1);
-
 
 template<long int size>
 long long int mat_or0(int matrix[size][size], int i, int j) {
@@ -47,6 +44,9 @@ int calculate_Magnetization(int matrix[size][size]) {
 template<long int size>
 void apply_metropolis(int matrix[size][size], float temperature, bool periodic_x, bool periodic_y) {
 	// Initialize random number generator
+	std::mt19937 gen(rd());
+	std::uniform_real_distribution<> real(0, 1);
+
 	std::uniform_int_distribution<> dis(0, size - 1);
 	// Choose random position
 	int i = dis(gen);
@@ -54,6 +54,8 @@ void apply_metropolis(int matrix[size][size], float temperature, bool periodic_x
 	// Calculate energy difference
 	long long int delta_E = -2 * get_neighbour_sum(matrix, i, j, periodic_x, periodic_y);
 	// Accept or reject
+
+
 	if (delta_E <= 0 or (temperature > 0 and real(gen) < exp(-(double) delta_E / temperature))) {
 		matrix[i][j] *= -1;
 	}
@@ -62,6 +64,7 @@ void apply_metropolis(int matrix[size][size], float temperature, bool periodic_x
 template<long int size>
 void initialize_matrix(int matrix[size][size], float temperature) {
 	// Initialize matrix with random values
+	std::mt19937 gen(rd());
 	std::uniform_real_distribution<> dis(0, 1);
 	for (int i = 0; i < size; i++) {
 		for (int j = 0; j < size; j++) {
@@ -87,8 +90,10 @@ long long simulate_metropolis_for_magnetization(double temperature) {
 	int matrix[size][size];
 	initialize_matrix(matrix, 0.5);
 	// Apply metropolis
-	for (int i = 0; i < 1000000; i++)
+	for (int i = 0; i < 1000 * size * size; i++){
 		apply_metropolis(matrix, temperature, true, true);
+		if (i%size * size == 0) printf("%d,%ld,%f,%d,%lld\n", i, size, temperature, abs(calculate_Magnetization(matrix)), calculate_Energy(matrix, true, true));
+	}
 	// Calculate magnetization
 	return abs(calculate_Magnetization(matrix));
 }
@@ -96,6 +101,7 @@ long long simulate_metropolis_for_magnetization(double temperature) {
 template<long int size>
 long long simulate_metropolis_for_magnetization(double temperature, const int n) {
 	long long int magnetization = 0;
+#pragma omp parallel for reduction(+:magnetization)
 	for (int i = 0; i < n; i++) {
 		magnetization += simulate_metropolis_for_magnetization<size>(temperature);
 	}
@@ -117,22 +123,34 @@ double get_temperature(double simulation_width, int simulation_count, int idx) {
 
 int main() {
 	// Initialize matrix
-	const int size = 32;
 	MPI_Init(nullptr, nullptr);
 	int mpi_rank, mpi_size;
 	MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
 	MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
 	if (mpi_rank == 0) printf("Running!\n\n");
-	double siumulation_wdith = 3.5;
-	int n_temperatures = 100;
-	int n_temperatures_per_rank = n_temperatures / mpi_size;
-
-	for (int i = mpi_rank * n_temperatures_per_rank; i < (mpi_rank + 1) * n_temperatures_per_rank; i++) {
-		double temperature = get_temperature(siumulation_wdith, n_temperatures, i);
-		double magnetization = (double) simulate_metropolis_for_magnetization<size>(temperature, 100) / (double) (size * size);
-		printf("%f %f\n", temperature, magnetization);
+//	double siumulation_wdith = 3.5;
+//	int n_temperatures = 100;
+//	int n_temperatures_per_rank = n_temperatures / mpi_size;
+	double mag;
+#define sim_temp(x, t) mag = simulate_metropolis_for_magnetization<x>(t, 100);
+	sim_temp(4, 1);
+	sim_temp(8, 1);
+	sim_temp(16, 1);
+	sim_temp(32, 1);
+	sim_temp(64, 1);
+	sim_temp(4, 4);
+	sim_temp(8, 4);
+	sim_temp(16, 4);
+	sim_temp(32, 4);
+	sim_temp(64, 4);
+//	 mag = simulate_metropolis_for_magnetization<size>(4, 1);
+//	 printf("T: 4, mag:%f\n", mag / (size * size));
+// for (int i = mpi_rank * n_temperatures_per_rank; i < (mpi_rank + 1) * n_temperatures_per_rank; i++) {
+// double temperature = get_temperature(siumulation_wdith, n_temperatures, i);
+// double magnetization = (double) simulate_metropolis_for_magnetization<size>(temperature, 100) / (double) (size * size);
+// printf("%f %f\n", temperature, magnetization);
 //		printf("%f\n", temperature);
-	}
+// }
 	MPI_Finalize();
 	return 0;
 }
